@@ -1,5 +1,17 @@
 package org.voidspark.mpssse;
+
 import static java.lang.String.format;
+import static org.voidspark.mpssse.MpsseCommands.MC_CLK_N;
+import static org.voidspark.mpssse.MpsseCommands.MC_CLK_N8;
+import static org.voidspark.mpssse.MpsseCommands.MC_DATA_BITS;
+import static org.voidspark.mpssse.MpsseCommands.MC_DATA_IN;
+import static org.voidspark.mpssse.MpsseCommands.MC_DATA_OCN;
+import static org.voidspark.mpssse.MpsseCommands.MC_DATA_OUT;
+import static org.voidspark.mpssse.MpsseCommands.MC_READB_HIGH;
+import static org.voidspark.mpssse.MpsseCommands.MC_READB_LOW;
+import static org.voidspark.mpssse.MpsseCommands.MC_SETB_LOW;
+import static org.voidspark.mpssse.MpsseCommands.MC_SET_CLK_DIV;
+import static org.voidspark.mpssse.MpsseCommands.MC_TCK_D5;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.LockSupport;
@@ -12,82 +24,8 @@ import org.slf4j.LoggerFactory;
 
 import jnr.ffi.Pointer;
 
-
 public class Mpsse {
     private static final Logger LOG = LoggerFactory.getLogger(Mpsse.class);
-
-    /* MPSSE engine command definitions */
-
-    /* Mode commands */
-    private static final int MC_SETB_LOW = 0x80; /* Set Data bits LowByte */
-    private static final int MC_READB_LOW = 0x81; /* Read Data bits LowByte */
-    private static final int MC_SETB_HIGH = 0x82; /* Set Data bits HighByte */
-    private static final int MC_READB_HIGH = 0x83; /* Read data bits HighByte */
-    private static final int MC_LOOPBACK_EN = 0x84; /* Enable loopback */
-    private static final int MC_LOOPBACK_DIS = 0x85; /* Disable loopback */
-    private static final int MC_SET_CLK_DIV = 0x86; /* Set clock divisor */
-    private static final int MC_FLUSH = 0x87; /* Flush buffer fifos to the PC. */
-    private static final int MC_WAIT_H = 0x88; /* Wait on GPIOL1 to go high. */
-    private static final int MC_WAIT_L = 0x89; /* Wait on GPIOL1 to go low. */
-    private static final int MC_TCK_X5 = 0x8A; /* Disable /5 div, enables 60MHz master clock */
-    private static final int MC_TCK_D5 = 0x8B; /* Enable /5 div, backward compat to FT2232D */
-    private static final int MC_EN_3PH_CLK = 0x8C; /* Enable 3 phase clk, DDR I2C */
-    private static final int MC_DIS_3PH_CLK = 0x8D; /* Disable 3 phase clk */
-    private static final int MC_CLK_N = 0x8E; /* Clock every bit, used for JTAG */
-    private static final int MC_CLK_N8 = 0x8F; /* Clock every byte, used for JTAG */
-    private static final int MC_CLK_TO_H = 0x94; /* Clock until GPIOL1 goes high */
-    private static final int MC_CLK_TO_L = 0x95; /* Clock until GPIOL1 goes low */
-    private static final int MC_EN_ADPT_CLK = 0x96; /* Enable adaptive clocking */
-    private static final int MC_DIS_ADPT_CLK = 0x97; /* Disable adaptive clocking */
-    private static final int MC_CLK8_TO_H = 0x9C; /* Clock until GPIOL1 goes high, count bytes */
-    private static final int MC_CLK8_TO_L = 0x9D; /* Clock until GPIOL1 goes low, count bytes */
-    private static final int MC_TRI = 0x9E; /* Set IO to only drive on 0 and tristate on 1 */
-
-    /* CPU mode commands */
-    private static final int MC_CPU_RS = 0x90; /* CPUMode read short address */
-    private static final int MC_CPU_RE = 0x91; /* CPUMode read extended address */
-    private static final int MC_CPU_WS = 0x92; /* CPUMode write short address */
-    private static final int MC_CPU_WE = 0x93; /* CPUMode write extended address */
-
-    /* Transfer Command bits */
-
-    /* All byte based commands consist of:
-     * - Command byte
-     * - Length lsb
-     * - Length msb
-     *
-     * If data out is enabled the data follows after the above command bytes,
-     * otherwise no additional data is needed.
-     * - Data * n
-     *
-     * All bit based commands consist of:
-     * - Command byte
-     * - Length
-     *
-     * If data out is enabled a byte containing bitst to transfer follows.
-     * Otherwise no additional data is needed. Only up to 8 bits can be transferred
-     * per transaction when in bit mode.
-     */
-
-    /* b 0000 0000
-     *   |||| |||`- Data out negative enable. Update DO on negative clock edge.
-     *   |||| ||`-- Bit count enable. When reset count represents bytes.
-     *   |||| |`--- Data in negative enable. Latch DI on negative clock edge.
-     *   |||| `---- LSB enable. When set clock data out LSB first.
-     *   ||||
-     *   |||`------ Data out enable
-     *   ||`------- Data in enable
-     *   |`-------- TMS mode enable
-     *   `--------- Special command mode enable. See mpsse_cmd enum.
-     */
-
-    private static final int MC_DATA_TMS = 0x40; /* When set use TMS mode */
-    private static final int MC_DATA_IN = 0x20; /* When set read data (Data IN) */
-    private static final int MC_DATA_OUT = 0x10; /* When set write data (Data OUT) */
-    private static final int MC_DATA_LSB = 0x08; /* When set input/output data LSB first. */
-    private static final int MC_DATA_ICN = 0x04; /* When set receive data on negative clock edge */
-    private static final int MC_DATA_BITS = 0x02; /* When set count bits not bytes */
-    private static final int MC_DATA_OCN = 0x01; /* When set update data on negative clock edge */
 
     private final FtD2xx ftD2xx;
     private Pointer ftHandle;
@@ -111,7 +49,7 @@ public class Mpsse {
         }
     }
 
-    public void error(int status) {
+    public void abort() {
         checkRx();
         LOG.error(format("ABORT."));
         if (mpsse_ftdic_open) {
@@ -121,16 +59,14 @@ public class Mpsse {
             ftD2xx.close(ftHandle);
         }
 //        ftdi_deinit(&mpsse_ftdic);
-        System.exit(status);
     }
 
-    public int recvByte() {
+    public int recvByte() throws MpssseException {
         byte[] buffer = new byte[1];
         while (true) {
             int rc = ftD2xx.read(ftHandle, buffer, 1);
             if (rc < 0) {
-                LOG.error(format("Read error."));
-                error(2);
+                throw new MpssseException(format("Read error."));
             }
             if (rc == 1) {
                 break;
@@ -140,20 +76,19 @@ public class Mpsse {
         return buffer[0] & 0xff;
     }
 
-    public void sendByte(int data) {
+    public void sendByte(int data) throws MpssseException {
         byte[] buffer = { (byte) data };
         int rc = ftD2xx.write(ftHandle, buffer, 1);
         if (rc != 1) {
-            LOG.error(format("Write error (single byte, rc=%d, expected %d).", rc, 1));
-            error(2);
+            throw new MpssseException(format("Write error (single byte, rc=%d, expected %d).", rc, 1));
         }
     }
 
-    public void sendSpi(byte[] data) {
+    public void sendSpi(byte[] data) throws MpssseException {
         sendSpi(data, data.length);
     }
-    
-    public void sendSpi(byte[] data, int len) {
+
+    public void sendSpi(byte[] data, int len) throws MpssseException {
         if (len < 1) {
             return;
         }
@@ -165,16 +100,15 @@ public class Mpsse {
 
         int rc = ftD2xx.write(ftHandle, data, len);
         if (rc != len) {
-            LOG.error(format("Write error (chunk, rc=%d, expected %d).", rc, len));
-            error(2);
+            throw new MpssseException(format("Write error (chunk, rc=%d, expected %d).", rc, len));
         }
     }
 
-    public void xferSpi(byte[] data) {
+    public void xferSpi(byte[] data) throws MpssseException {
         xferSpi(data, data.length);
     }
 
-    public void xferSpi(byte[] data, int len) {
+    public void xferSpi(byte[] data, int len)throws MpssseException {
         if (len < 1) {
             return;
         }
@@ -186,8 +120,7 @@ public class Mpsse {
 
         int rc = ftD2xx.write(ftHandle, data, len);
         if (rc != len) {
-            LOG.error(format("Write error (chunk, rc=%d, expected %d).", rc, len));
-            error(2);
+            throw new MpssseException(format("Write error (chunk, rc=%d, expected %d).", rc, len));
         }
 
         for (int i = 0; i < len; i++) {
@@ -195,7 +128,7 @@ public class Mpsse {
         }
     }
 
-    public int xferSpiBits(int data, int len) {
+    public int xferSpiBits(int data, int len) throws MpssseException{
         if (len < 1) {
             return 0;
         }
@@ -208,41 +141,40 @@ public class Mpsse {
         return recvByte();
     }
 
-    public void setGpio(int gpio, int direction) {
+    public void setGpio(int gpio, int direction) throws MpssseException {
         sendByte(MC_SETB_LOW);
         sendByte(gpio); /* Value */
         sendByte(direction); /* Direction */
     }
 
-    public int readbLow() {
+    public int readbLow() throws MpssseException {
         int data;
         sendByte(MC_READB_LOW);
         data = recvByte();
         return data;
     }
 
-    public int readbHigh() {
+    public int readbHigh() throws MpssseException {
         int data;
         sendByte(MC_READB_HIGH);
         data = recvByte();
         return data;
     }
 
-    public void sendDummyBytes(int count) {
+    public void sendDummyBytes(int count) throws MpssseException {
         // add 8 x count dummy bits (aka count bytes)
         sendByte(MC_CLK_N8);
         sendByte(count - 1);
         sendByte(0x00);
-
     }
 
-    public void sendDummyBit() {
+    public void sendDummyBit() throws MpssseException {
         // add 1  dummy bit
         sendByte(MC_CLK_N);
         sendByte(0x00);
     }
 
-    public void init(/* int ifnum, const char *devstr, */ boolean slow_clock) {
+    public void init(/* int ifnum, const char *devstr, */ boolean slow_clock) throws MpssseException {
 //        enum ftdi_interface ftdi_ifnum = INTERFACE_A;
 //
 //        switch (ifnum) {
@@ -284,30 +216,26 @@ public class Mpsse {
         try {
             ftD2xx.resetDevice(ftHandle);
         } catch (FtD2xxException ex) {
-            LOG.error(format("Failed to reset iCE FTDI USB device: %s", ex.getMessage()), ex);
-            error(2);
+            throw new MpssseException(format("Failed to reset iCE FTDI USB device: %s", ex.getMessage()), ex);
         }
 
         try {
             ftD2xx.purgeBuffers(ftHandle, true, true);
         } catch (FtD2xxException ex) {
-            LOG.error(format("Failed to purge buffers on iCE FTDI USB device: %s", ex.getMessage()), ex);
-            error(2);
+            throw new MpssseException(format("Failed to purge buffers on iCE FTDI USB device: %s", ex.getMessage()), ex);
         }
 
         try {
             mpsse_ftdi_latency = ftD2xx.getLatencyTimer(ftHandle);
         } catch (FtD2xxException ex) {
-            LOG.error(format("Failed to get latency timer: %s", ex.getMessage()), ex);
-            error(2);
+            throw new MpssseException(format("Failed to get latency timer: %s", ex.getMessage()), ex);
         }
 
         /* 1 is the fastest polling, it means 1 kHz polling */
         try {
             ftD2xx.setLatencyTimer(ftHandle, 1);
         } catch (FtD2xxException ex) {
-            LOG.error(format("Failed to set latency timer: %s", ex.getMessage()), ex);
-            error(2);
+            throw new MpssseException(format("Failed to set latency timer: %s", ex.getMessage()), ex);
         }
 
         mpsse_ftdic_latency_set = true;
@@ -316,8 +244,7 @@ public class Mpsse {
         try {
             ftD2xx.setBitMode(ftHandle, 0xff, ftd2xx.FT_BITMODE_MPSSE);
         } catch (FtD2xxException ex) {
-            LOG.error(format("Failed to set BITMODE_MPSSE on iCE FTDI USB device: %s", ex.getMessage()), ex);
-            error(2);
+            throw new MpssseException(format("Failed to set BITMODE_MPSSE on iCE FTDI USB device: %s", ex.getMessage()), ex);
         }
 
         // enable clock divide by 5
