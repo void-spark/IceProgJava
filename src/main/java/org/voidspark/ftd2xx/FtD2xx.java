@@ -9,14 +9,10 @@ import org.voidspark.ftd2xx.lib.ftd2xx;
 import jnr.ffi.LibraryLoader;
 import jnr.ffi.Pointer;
 import jnr.ffi.Runtime;
-import jnr.ffi.Struct;
 import jnr.ffi.annotations.In;
-import jnr.ffi.annotations.Out;
 import jnr.ffi.byref.ByteByReference;
 import jnr.ffi.byref.IntByReference;
 import jnr.ffi.byref.PointerByReference;
-import jnr.ffi.types.u_int32_t;
-import jnr.ffi.types.u_int8_t;
 
 public class FtD2xx {
 
@@ -24,10 +20,12 @@ public class FtD2xx {
     private final Runtime runtime;
 
     public FtD2xx() {
-        lib = LibraryLoader.create(ftd2xx.class).stdcall().load("ftd2xx64");
+
+        final String libraryName = Runtime.getSystemRuntime().addressSize() == 64 ? "ftd2xx64" : "ftd2xx";
+        lib = LibraryLoader.create(ftd2xx.class).search("native").search("src/main/native").stdcall().load(libraryName);
         runtime = Runtime.getRuntime(lib);
     }
-    
+
     public long createDeviceInfoList() {
         final IntByReference numDevs = new IntByReference();
         doChecked(lib.FT_CreateDeviceInfoList(numDevs));
@@ -45,7 +43,7 @@ public class FtD2xx {
         }
         return nodes;
     }
-    
+
     public Pointer open(final int deviceNumber) {
         final PointerByReference pHandle = new PointerByReference();
         doChecked(lib.FT_Open(deviceNumber, pHandle));
