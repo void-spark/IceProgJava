@@ -19,7 +19,7 @@
 
         <!-- Dependency versions -->
         <slf4j.version>1.7.28</slf4j.version>
-        <picocli.version>4.0.3</picocli.version>
+        <picocli.version>4.0.4</picocli.version>
     </properties>
 
     <dependencies>
